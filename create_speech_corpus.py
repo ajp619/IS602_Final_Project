@@ -6,22 +6,14 @@ Create a corpus of speeches from seed links
 __author__ = 'Aaron'
 
 # Import required modules
-from bs4 import BeautifulSoup
 import re
-import urllib
 import AlchemyAPI
 import xml.etree.ElementTree as ET
 
-def get_html_source(url):
-    """Returns the html source of the page at url"""
-    # import urllib
-    try:
-        sock = urllib.urlopen(url)
-        html_source = sock.read()
-        sock.close()
-        return html_source
-    except IOError:
-        print "IOError: Not a valid URL"
+from bs4 import BeautifulSoup
+
+from projectutils import readobject, saveobject, get_html_source, clean_text
+from projectutils import alchemy_page_text
 
 
 def process_links(html, return_list, processed):
@@ -57,49 +49,29 @@ def process_links(html, return_list, processed):
     return return_list, processed
 
 
-def clean_text(some_text):
-    # import re
-    some_clean_text = re.sub(r'\n|\t', '', some_text)           # Remove new line and tabs
-    some_clean_text = re.sub(' +', ' ', some_clean_text)        # Replace multiple spaces with one space
-    return some_clean_text
-
-
 def process_speech_source(url):
-    # import AlchemyAPI
-    try:
-        # Create an AlchemyAPI object.
-        alchemyObj = AlchemyAPI.AlchemyAPI()
-
-        # Load the API key from disk.
-        alchemyObj.loadAPIKey("api_key.txt")
-
-        # Extract page text from a web URL (ignoring navigation links, ads, etc.).
-        result = alchemyObj.URLGetText(url)
-
-        speech_text = xml_to_text(result)
-        speech_text = clean_text(speech_text)
-
-    except TypeError:
-        print "There is a TypeError in process_speech_source"
+    speech_text = alchemy_page_text(url)
 
     return 1980, speech_text
-
-
-def xml_to_text(text_xml):
-    """Use xml.etree.ElementTree to return text from the AlchemyAPI text extraction output"""
-    # import xml.etree.ElementTree as ET
-    root = ET.fromstring(text_xml)
-    return root.find('text').text
 
 
 def get_corpus(seeds):
     # Extract links to speeches from "seeds". These links should be links to the text of actual speeches.
     speeches = []
     processed = []
+
+    try:
+        readobject("speeches")
+        readobject("processed")
+    except IOError:
+        print "file not found"
+
     for seed in seeds:
         html = get_html_source(seed)
         speeches, processed = process_links(html, speeches, processed)
 
+    saveobject(speeches, "speeches")
+    saveobject(processed, "processed")
     return speeches
 
 

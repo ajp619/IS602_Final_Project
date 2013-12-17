@@ -3,7 +3,7 @@ IS602 Final Project
 
 Do the themes we see as a child show up later in political speeches
 """
-
+__author__ = 'Aaron'
 
 import create_speech_corpus
 
@@ -25,5 +25,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-__author__ = 'Aaron'
