@@ -70,8 +70,8 @@ def get_corpus(seeds):
         html = get_html_source(seed)
         speeches, processed = process_links(html, speeches, processed)
 
-    saveobject(speeches, "speeches")
-    saveobject(processed, "processed")
+    saveobject(speeches, "program_data_files/speeches")
+    saveobject(processed, "program_data_files/processed")
     return speeches
 
 

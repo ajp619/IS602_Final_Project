@@ -92,45 +92,45 @@ def get_tv_shows(year_range, networks):
                         if item_network in networks and item_id not in [sublist[0] for sublist in tv_shows]:
                             tv_shows.append([year, item_id, item_title, item_network])
         finally:
-            saveobject(tv_shows, "tv_shows_basic")
-            saveobject(years_already_processed, "years_already_processed")
+            saveobject(tv_shows, "program_data_files/tv_shows_basic")
+            saveobject(years_already_processed, "program_data_files/years_already_processed")
     return tv_shows
 
 
 def get_overview_text(tv_shows):
-    # TODO save show overviews as dictionary. Look up and append to tv shows
-    # FIXME this does not work right now. I overwrite any additions with the disk version of tv_shows
+    # TODO need to finish verifying these changes work
     try:
-        tv_shows = readobject("program_data_files/tv_shows_overview")
+        tv_shows_overview = readobject("program_data_files/tv_shows_overview")
     except IOError:
-        print "file: tv_shows_overview not found on disk"
+        print "file: tv_shows_overview not found on disk. Starting new."
+        tv_shows_overview = {}
 
     try:
         for show in tv_shows:
-            if len(show) == 4:
-                show_id = show[1]
-                print show_id
+            show_id = show[1]
+            if show_id not in tv_shows_overview.keys():
+                print "Getting overview for  {0}".format(show_id)
                 address = "".join(["http://thetvdb.com/api/5CCC7BF5A4FB7B8D/series/", show_id, "/all/en.zip"])
                 # also need to close zipfile?
                 with closing(urlopen(address)) as url:
                     zipfile = ZipFile(StringIO(url.read()))
                 summary = zipfile.open("en.xml").read()
-                show.append(xml_to_text(summary, node_name='Overview'))
+                tv_shows_overview[show_id] = xml_to_text(summary, node_name='Overview')
     finally:
-        saveobject(tv_shows, "tv_shows_overview")
+        saveobject(tv_shows_overview, "program_data_files/tv_shows_overview")
 
-    return tv_shows
+    return tv_shows_overview
 
 
 def create_tv_corpus():
     # crawl site to generate list of tv shows. Site prefers you to use API so go gently
-    year_range = range(1940, 1985)
+    year_range = range(1940, 2005)
     networks = ["CBS", "CNBC", "NBC", "CBC", "Bravo", "ABC", "HBO", "Cartoon Network",
                 "A&E", "FOX", "TBS Superstation", "PBS", "Showtime", "Nickelodeon"]
     tv_shows = get_tv_shows(year_range, networks)
 
     # use api to get tv show summaries
-    tv_shows = get_overview_text(tv_shows)
+    tv_shows_overview = get_overview_text(tv_shows)
 
     # return tv_shows[[Show, Date(Year), Summary Text], [show 2], ...]
 
