@@ -6,11 +6,13 @@ __author__ = 'Aaron'
 
 from urllib import quote_plus, urlopen
 from projectutils import xml_to_text, readobject, saveobject
+from projectutils import alchemy_keywords, get_datecode
 import unirest
 import re
 from StringIO import StringIO
 from zipfile import ZipFile
 from contextlib import closing
+import time
 
 
 def construct_search_url(year):
@@ -56,28 +58,40 @@ def get_info_from_response(html):
 
 
 def get_tv_shows(year_range, networks):
+
+    tv_shows = []
     try:
         tv_shows = readobject("program_data_files/tv_shows_basic")
     except IOError:
-        tv_shows = []
         print "file: tv_shows_basic not found"
 
+    years_already_processed = []
     try:
         years_already_processed = readobject("program_data_files/years_already_processed")
     except IOError:
-        years_already_processed = []
         print "file: years_already_processed not found"
+
+    mashape_calls = {}
+    try:
+        mashape_calls = readobject("mashape_calls")
+    except IOError:
+        print "file: mashape_calls not found"
+    date_key = get_datecode()
+    if date_key not in mashape_calls:
+        mashape_calls[date_key] = 0
+    max_per_day = 20
 
     mashape_key = readobject("mashape_key")
 
-    for year in year_range:
-        try:
-            if year not in years_already_processed:
+    try:
+        for year in year_range:
+            if year not in years_already_processed and mashape_calls[date_key] < max_per_day:
                 print "processing {0}".format(year)
                 search_url = construct_search_url(year)
                 mashape_query = construct_mashape_query(search_url)
                 mashape_header = {"X-Mashape-Authorization": mashape_key}
                 try:
+                    mashape_calls[date_key] += 1
                     response = unirest.get(mashape_query, headers=mashape_header)
                     years_already_processed.append(year)
                 except ssl.SSLError as e:
@@ -91,14 +105,15 @@ def get_tv_shows(year_range, networks):
                         item_id, item_title, item_network = item[0], item[1], item[2]
                         if item_network in networks and item_id not in [sublist[0] for sublist in tv_shows]:
                             tv_shows.append([year, item_id, item_title, item_network])
-        finally:
-            saveobject(tv_shows, "program_data_files/tv_shows_basic")
-            saveobject(years_already_processed, "program_data_files/years_already_processed")
+    finally:
+        print "saving tv_shows, years_already_processed, mashape_calls"
+        saveobject(tv_shows, "program_data_files/tv_shows_basic")
+        saveobject(years_already_processed, "program_data_files/years_already_processed")
+        saveobject(mashape_calls, "mashape_calls")
     return tv_shows
 
 
 def get_overview_text(tv_shows):
-    # TODO need to finish verifying these changes work
     try:
         tv_shows_overview = readobject("program_data_files/tv_shows_overview")
     except IOError:
@@ -122,15 +137,50 @@ def get_overview_text(tv_shows):
     return tv_shows_overview
 
 
+def get_keywords(overview):
+
+    keywords = {}
+    try:
+        keywords = readobject("program_data_files/tv_shows_keywords")
+    except IOError:
+        print "file: tv_shows_keywords not found on disk. Starting new."
+
+    alchemy_calls = {}
+    try:
+        alchemy_calls = readobject("alchemy_calls")
+    except IOError:
+        print "file alchemy_calls not found on disk"
+    date_key = get_datecode()
+    if date_key not in alchemy_calls:
+        alchemy_calls[date_key] = 0
+    max_per_day = 1000
+
+    try:
+        for show_id in overview.keys():
+            if show_id not in keywords.keys() and alchemy_calls[date_key] < max_per_day:
+                print "processing show id: {0}, call #: {1}".format(show_id, alchemy_calls[date_key])
+                alchemy_calls[date_key] += 1
+                keywords[show_id] = alchemy_keywords(overview[show_id].encode("utf-8"))
+    finally:
+        print "saving tv_shows_keywords, alchemy_calls"
+        saveobject(keywords, "program_data_files/tv_shows_keywords")
+        saveobject(alchemy_calls, "alchemy_calls")
+
+    return keywords
+
+
 def create_tv_corpus():
     # crawl site to generate list of tv shows. Site prefers you to use API so go gently
-    year_range = range(1940, 2005)
+    year_range = range(1940, 2013)
     networks = ["CBS", "CNBC", "NBC", "CBC", "Bravo", "ABC", "HBO", "Cartoon Network",
                 "A&E", "FOX", "TBS Superstation", "PBS", "Showtime", "Nickelodeon"]
     tv_shows = get_tv_shows(year_range, networks)
 
     # use api to get tv show summaries
     tv_shows_overview = get_overview_text(tv_shows)
+
+    # use alchemy to get keywords from overview
+    tv_shows_keywords = get_keywords(tv_shows_overview)
 
     # return tv_shows[[Show, Date(Year), Summary Text], [show 2], ...]
 

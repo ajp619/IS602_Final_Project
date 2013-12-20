@@ -6,6 +6,7 @@ Do the themes we see as a child show up later in political speeches
 __author__ = 'Aaron'
 
 import create_speech_corpus
+import create_tv_corpus
 
 
 def get_speech_seed():
@@ -17,10 +18,10 @@ def get_speech_seed():
 
 def main():
     # Get seed links for speech crawl
-    speech_seed = get_speech_seed()
+    speech_seeds = get_speech_seed()
 
     # Create speech corpus
-    speech_corpus = create_speech_corpus.get_corpus(speech_seed)
+    speech_corpus = create_speech_corpus.get_corpus(speech_seeds)
 
 
 if __name__ == "__main__":

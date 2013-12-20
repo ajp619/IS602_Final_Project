@@ -7,78 +7,109 @@ __author__ = 'Aaron'
 
 # Import required modules
 import re
-import AlchemyAPI
-import xml.etree.ElementTree as ET
-
+from projectutils import get_datecode
 from bs4 import BeautifulSoup
-
 from projectutils import readobject, saveobject, get_html_source, clean_text
 from projectutils import alchemy_page_text
 
 
-def process_links(html, return_list, processed):
-    # Return a list of authors and links from an AmericanRhetoric.com page
-    # that point to a speech also on AmericanRhetoric
+def process_links(html):
+    """
+    Takes as input html that has links to speeches. Returns info on those speeches.
 
-    # Import
-    # from bs4 import BeautifulSoup
-    # import re
+    input:
+    html = page source that contains links to speeches
+
+    output:
+    dictionary speeches
+    speeches.keys = url of speeches processed from input
+    for each key the value pair is another dictionary containing:
+        auth = author of speech
+        date = year speech given
+        text = text of speech
+
+    * Only the links to speeches on AmericanRhetoric.com are processed
+    """
+
+    speeches = {}                                                       # Initialize speeches to empty dictionary
+    try:                                                                # If this exists on disk read it in
+        speeches = readobject("program_data_files/speeches")
+    except IOError:
+        print "speeches file not found on disk"
+
+    alchemy_calls = {}                                                  # Need to track calls to alchemy api
+    try:                                                                # Limit = 1000/day
+        alchemy_calls = readobject("alchemy_calls")
+    except IOError:
+        print "file alchemy_calls not found on disk"
+    date_key = get_datecode()
+    if date_key not in alchemy_calls:
+        alchemy_calls[date_key] = 0
+    max_per_day = 1000
 
     # Initialize variables
     soup = BeautifulSoup(html)
     pattern = '^speeches'
 
-    for link in soup.find_all('a'):
-        url = str(link.get('href'))
-        on_site = re.search(pattern, url)
-        if on_site:
-            url = "".join(["http://americanrhetoric.com/", url])
-            if url not in processed:
-                # Extract Author
-                text = "".join(link.stripped_strings)           # Merge all text into one string
-                text = text.encode('ascii', 'ignore')           # Convert text to straight ascii
-                auth = text.split(":")[0].rstrip()              # Everything in front of : should be author
-                                                                # then remove whitespace
-                auth = clean_text(auth)                         # clean up auth
+    try:
+        for link in soup.find_all('a'):
+            url = unicode(link.get('href'))                             # Modified from str( to unicode(
+            on_site = re.search(pattern, url)
+            if on_site and alchemy_calls[date_key] < max_per_day:
+                url = "".join(["http://americanrhetoric.com/", url])
+                if url not in speeches.keys():
+                    # Extract Author
+                    text = "".join(link.stripped_strings)               # Merge all text into one string
 
-                # Extract Date and Speech from url
-                date, text = process_speech_source(url)
+                    # text = text.encode('utf-8')                       # TODO can I leave these out?
+                    # text = text.encode('ascii', 'ignore')             # Convert text to straight ascii
 
-                return_list.append([auth, date, text])
-                processed.append(url)
-    return return_list, processed
+                    auth = text.split(":")[0].rstrip()                  # Everything in front of : should be author
+                                                                        # then remove whitespace
+                    auth = clean_text(auth)                             # clean up auth
+
+                    # Extract Speech text from url
+                    alchemy_calls[date_key] += 1
+                    text = alchemy_page_text(url)
+
+                    # Extract date from url source
+                    date = extract_date(url)
+
+                    speeches[url] = {'auth': auth, 'date': date, 'text': text}
+    finally:
+        saveobject(speeches, "program_data_files/speeches")
+    return speeches
 
 
-def process_speech_source(url):
-    speech_text = alchemy_page_text(url)
-
-    return 1980, speech_text
+def extract_date(url):
+    html = get_html_source(url)
+    # e.g. (delivered or broadcast) 21 September 2000
+    pattern_dm = r'(delivered|broadcast)\s*\d*\s*\D*\s*(?P<year>[0-9]{4})'
+    date = re.search(pattern_dm, html, re.IGNORECASE)
+    if date is None:
+        # e.g. (delivered or broadcast) September 21, 2000
+        pattern_md = r'(delivered|broadcast)\s*\D*\s*\d*,*\s*(?P<year>[0-9]{4})'
+        date = re.search(pattern_md, html, re.IGNORECASE)
+    if date:
+        return int(clean_text(date.group('year')))
+    else:
+        return None
 
 
 def get_corpus(seeds):
     # Extract links to speeches from "seeds". These links should be links to the text of actual speeches.
-    speeches = []
-    processed = []
-
-    try:
-        readobject("program_data_files/speeches")
-        readobject("program_data_files/processed")
-    except IOError:
-        print "file not found"
 
     for seed in seeds:
         html = get_html_source(seed)
-        speeches, processed = process_links(html, speeches, processed)
+        speeches = process_links(html)
 
-    saveobject(speeches, "program_data_files/speeches")
-    saveobject(processed, "program_data_files/processed")
     return speeches
 
 
 def main():
-    seed = ["http://www.americanrhetoric.com/speechbanka-f.htm"]
-    speeches = get_corpus(seed)
-    print speeches
+    seeds = ["http://www.americanrhetoric.com/speechbanka-f.htm"]
+    speeches = get_corpus(seeds)
+    print len(speeches)
 
 
 if __name__ == "__main__":
