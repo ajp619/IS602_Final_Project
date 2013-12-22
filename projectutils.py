@@ -12,10 +12,13 @@ import cPickle as pickle
 import xml.etree.ElementTree as ET
 from datetime import datetime
 import sys
+import numpy as np
+import matplotlib.pyplot as plt
 
 __author__ = 'Aaron'
 
 def saveobject(obj, filename):
+    """save obj, filename"""
     # import cPickle as pickle
     with open(filename, 'wb') as output:
         pickle.dump(obj, output, pickle.HIGHEST_PROTOCOL)
@@ -116,6 +119,58 @@ def alchemy_keywords(text):
 def get_datecode():
     now = datetime.utcnow()
     return now.strftime("%Y%m%d")
+
+
+def dict_by_year(incoming_dict):
+    # expects incoming_dictionary = {key: {'year': YYYY, 'keywords':{'word': value}, ...}}
+    by_year = {}
+    for key in incoming_dict.keys():
+        try:
+            year = incoming_dict[key]['year']
+            keywords = incoming_dict[key]['keywords']
+            for word in keywords:
+                if year in by_year.keys():
+                    if word in by_year[year].keys():
+                        by_year[year][word] += keywords[word]
+                    else:
+                        by_year[year][word] = keywords[word]
+                else:
+                    by_year[year] = {word: keywords[word]}
+        except KeyError:
+            print "KeyError in dict_by_year. Key = {0}".format(key)
+    return by_year
+
+
+def sort_dict_keys_by_values(dict):
+    return sorted(dict.keys(), key=lambda x: dict[x], reverse=True)
+
+
+def create_heat_map(source, response, max_keywords, start_year, interval):
+    source_by_year = dict_by_year(source)
+    response_by_year = dict_by_year(response)
+    # create an array to plot for heat map
+    heat_map = np.zeros((max_keywords, interval))
+    for c in range(interval):
+        year = start_year + c
+        sorted_words = sort_dict_keys_by_values(source_by_year[year])
+        for r in range(max_keywords):
+            if r < len(sorted_words):
+                word = sorted_words[r]
+                try:
+                    value = response_by_year[year][word]
+                except KeyError:
+                    value = 0
+                finally:
+                    heat_map[r, c] = value
+    return heat_map
+
+
+def plot_heat_map(heat_map):
+    plt.imshow(heat_map)
+    plt.jet()
+    plt.colorbar()
+
+    plt.show()
 
 
 def main():

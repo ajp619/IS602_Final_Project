@@ -10,7 +10,7 @@ import re
 from projectutils import get_datecode
 from bs4 import BeautifulSoup
 from projectutils import readobject, saveobject, get_html_source, clean_text
-from projectutils import alchemy_page_text
+from projectutils import alchemy_page_text, alchemy_keywords
 
 
 def process_links(html):
@@ -37,6 +37,15 @@ def process_links(html):
     except IOError:
         print "speeches file not found on disk"
 
+    # There seem to be a few broken links on the web site that result in error 404 pages
+    # I'm sure there is a way to catch these and skip them but for now there aren't many
+    # and this is faster.
+    broken_links = ['http://americanrhetoric.com/speeches/gwbreagansdeath.htm',
+                    'http://americanrhetoric.com/speeches/joachimgauckinauguraladdressgerman.htm',
+                    'http://americanrhetoric.com/speeches/johnleibowitzpathsettlement.htm',
+                    'http://americanrhetoric.com/speeches/robertsloanbayloruniversity.htm',
+                    'http://americanrhetoric.com/speeches/tdjakesseedonmyside.html']
+
     alchemy_calls = {}                                                  # Need to track calls to alchemy api
     try:                                                                # Limit = 1000/day
         alchemy_calls = readobject("alchemy_calls")
@@ -50,6 +59,7 @@ def process_links(html):
     # Initialize variables
     soup = BeautifulSoup(html)
     pattern = '^speeches'
+    need_save = False                                                   # Save flag so I'm only saving when necessary
 
     try:
         for link in soup.find_all('a'):
@@ -57,43 +67,76 @@ def process_links(html):
             on_site = re.search(pattern, url)
             if on_site and alchemy_calls[date_key] < max_per_day:
                 url = "".join(["http://americanrhetoric.com/", url])
-                if url not in speeches.keys():
+                if url not in speeches.keys() and url not in broken_links:
+                    print "processing url: {0}".format(url)
                     # Extract Author
-                    text = "".join(link.stripped_strings)               # Merge all text into one string
+                    auth = "".join(link.stripped_strings)               # Merge all text into one string
 
                     # text = text.encode('utf-8')                       # TODO can I leave these out?
                     # text = text.encode('ascii', 'ignore')             # Convert text to straight ascii
 
-                    auth = text.split(":")[0].rstrip()                  # Everything in front of : should be author
+                    auth = auth.split(":")[0].rstrip()                  # Everything in front of : should be author
                                                                         # then remove whitespace
                     auth = clean_text(auth)                             # clean up auth
+
+                    # Extract date from url source
+                    date = extract_date(url)
 
                     # Extract Speech text from url
                     alchemy_calls[date_key] += 1
                     text = alchemy_page_text(url)
 
-                    # Extract date from url source
-                    date = extract_date(url)
+                    # Extract Keywords from speech text
+                    keywords = alchemy_keywords(text.encode("utf-8"))
 
-                    speeches[url] = {'auth': auth, 'date': date, 'text': text}
+                    need_save = True
+                    speeches[url] = {'auth': auth, 'date': date, 'text': text, 'keywords': keywords}
+
+    except 'Error making API call':
+        # FIXME: this isn't catching anything
+        print 'Caught exception "Error making API call" from Alchemy API'
+
     finally:
-        saveobject(speeches, "program_data_files/speeches")
+        if need_save:
+            print "alchemy calls for today = {0}".format(alchemy_calls[date_key])
+            print "saving objects: speeches, alchemy_calls"
+            saveobject(speeches, "program_data_files/speeches")
+            saveobject(alchemy_calls, "alchemy_calls")
+        else:
+            print "no modifications to speeches"
     return speeches
 
 
 def extract_date(url):
     html = get_html_source(url)
-    # e.g. (delivered or broadcast) 21 September 2000
     pattern_dm = r'(delivered|broadcast)\s*\d*\s*\D*\s*(?P<year>[0-9]{4})'
+                    # e.g. (delivered or broadcast) 21 September 2000
     date = re.search(pattern_dm, html, re.IGNORECASE)
     if date is None:
-        # e.g. (delivered or broadcast) September 21, 2000
         pattern_md = r'(delivered|broadcast)\s*\D*\s*\d*,*\s*(?P<year>[0-9]{4})'
+                        # e.g. (delivered or broadcast) September 21, 2000
         date = re.search(pattern_md, html, re.IGNORECASE)
     if date:
         return int(clean_text(date.group('year')))
     else:
         return None
+
+
+def summarize(speeches):
+    summary = dict()
+    missing_year_count = 0
+    for key in speeches.keys():
+        try:
+            summary[key] = dict(year=int(speeches[key]['date']), keywords=speeches[key]['keywords'])
+        except TypeError:
+            # To debug, uncomment the following 2 lines
+            #print "create_speech_corpus.summarize: no year. Skipping speech by {0}"\
+            #    .format(speeches[key]['auth'])
+            missing_year_count += 1
+    if missing_year_count > 0:
+        print "create_speech_corpus.summarize: {0} speeches were skipped due to missing year"\
+            .format(missing_year_count)
+    return summary
 
 
 def get_corpus(seeds):
@@ -103,13 +146,19 @@ def get_corpus(seeds):
         html = get_html_source(seed)
         speeches = process_links(html)
 
-    return speeches
+    summary = summarize(speeches)
+
+    return summary
 
 
 def main():
-    seeds = ["http://www.americanrhetoric.com/speechbanka-f.htm"]
-    speeches = get_corpus(seeds)
-    print len(speeches)
+    seeds = ["http://www.americanrhetoric.com/speechbanka-f.htm",
+             "http://www.americanrhetoric.com/speechbankg-l.htm",
+             "http://www.americanrhetoric.com/speechbankm-r.htm",
+             "http://www.americanrhetoric.com/speechbanks-z.htm"]
+    summary = get_corpus(seeds)
+
+    print "Number of summarized speeches = {0}".format(len(summary))
 
 
 if __name__ == "__main__":
