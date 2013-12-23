@@ -37,17 +37,17 @@ def process_links(html):
     except IOError:
         print "speeches file not found on disk"
 
-    # There seem to be a few broken links on the web site that result in error 404 pages
+    # There seems to be a few broken links on the web site that result in error 404 pages
     # I'm sure there is a way to catch these and skip them but for now there aren't many
-    # and this is faster.
+    # and this works.
     broken_links = ['http://americanrhetoric.com/speeches/gwbreagansdeath.htm',
                     'http://americanrhetoric.com/speeches/joachimgauckinauguraladdressgerman.htm',
                     'http://americanrhetoric.com/speeches/johnleibowitzpathsettlement.htm',
                     'http://americanrhetoric.com/speeches/robertsloanbayloruniversity.htm',
                     'http://americanrhetoric.com/speeches/tdjakesseedonmyside.html']
 
-    alchemy_calls = {}                                                  # Need to track calls to alchemy api
-    try:                                                                # Limit = 1000/day
+    alchemy_calls = {}                                     # Need to track calls to alchemy api
+    try:                                                   # Limit = 1000/day
         alchemy_calls = readobject("alchemy_calls")
     except IOError:
         print "file alchemy_calls not found on disk"
@@ -58,12 +58,12 @@ def process_links(html):
 
     # Initialize variables
     soup = BeautifulSoup(html)
-    pattern = '^speeches'
-    need_save = False                                                   # Save flag so I'm only saving when necessary
+    pattern = '^speeches'               # I want to follow every link that begins with speeches
+    need_save = False                   # Save flag so I'm only saving when necessary
 
     try:
         for link in soup.find_all('a'):
-            url = unicode(link.get('href'))                             # Modified from str( to unicode(
+            url = unicode(link.get('href'))
             on_site = re.search(pattern, url)
             if on_site and alchemy_calls[date_key] < max_per_day:
                 url = "".join(["http://americanrhetoric.com/", url])
@@ -71,9 +71,6 @@ def process_links(html):
                     print "processing url: {0}".format(url)
                     # Extract Author
                     auth = "".join(link.stripped_strings)               # Merge all text into one string
-
-                    # text = text.encode('utf-8')                       # TODO can I leave these out?
-                    # text = text.encode('ascii', 'ignore')             # Convert text to straight ascii
 
                     auth = auth.split(":")[0].rstrip()                  # Everything in front of : should be author
                                                                         # then remove whitespace
@@ -108,6 +105,11 @@ def process_links(html):
 
 
 def extract_date(url):
+    """
+    Most speeches on American Rhetoric have one of the phrases described below containing the date
+
+    If found, returns year as int, otherwise returns None
+    """
     html = get_html_source(url)
     pattern_dm = r'(delivered|broadcast)\s*\d*\s*\D*\s*(?P<year>[0-9]{4})'
                     # e.g. (delivered or broadcast) 21 September 2000
@@ -146,6 +148,8 @@ def get_corpus(seeds):
         html = get_html_source(seed)
         speeches = process_links(html)
 
+    # This is the final output of this module.
+    # summary is a dictionary containing year and keywords for each speech
     summary = summarize(speeches)
 
     return summary

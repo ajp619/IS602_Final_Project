@@ -16,6 +16,9 @@ import time
 
 
 def construct_search_url(year):
+    """
+    Returns the url at thetvdb.com that searches for tv shows starting in the specified year
+    """
     search_url = ["http://thetvdb.com/index.php?",
               "seriesname=",
               "&fieldlocation=2",
@@ -34,6 +37,9 @@ def construct_search_url(year):
 
 
 def construct_mashape_query(search_url):
+    """
+    Converts the tvdb query to the proper format to be use in the unirest call to mashape
+    """
     query_url = ["https://crawlera.p.mashape.com/fetch?url=",
                  quote_plus(search_url),
                  "&data=%3Cdata%3E"]
@@ -41,6 +47,11 @@ def construct_mashape_query(search_url):
 
 
 def get_info_from_response(html):
+    """
+    Processes the response from the tvdb query (through mashape)
+
+    Uses regular expressions to find the id, title, and Network of each show (see comments below)
+    """
     pattern = ['<tr>'													    # Begin table row
                '<td class=".*?">.*?</td>'									# Row Number
                '<td class=".*?"><a.*?id=(.*?)\&amp;.*?>(.*?)</a></td>'      # Series Information: (id), (title)
@@ -58,6 +69,19 @@ def get_info_from_response(html):
 
 
 def get_tv_shows(year_range, networks, ignore_ids):
+    """
+    Takes as input a range of years and returns a list of information on each show
+
+    Input:
+        year range: years to query on thetvdb
+        networks: list of networks to include in return list
+        ignore_ids: There are a few shows that cause errors when processing. Ignore these
+    Output:
+        tv_shows[[year, item_id, item_title, item_network], ...]
+        item_id will be used later to get overview of show
+    ---------
+    Make sure to save if an exception occurs!
+    """
 
     tv_shows = []
     try:
@@ -81,6 +105,7 @@ def get_tv_shows(year_range, networks, ignore_ids):
         mashape_calls[date_key] = 0
     max_per_day = 20
 
+    # Save flags
     need_save_mashape = False
     need_save_shows = False
 
@@ -90,9 +115,11 @@ def get_tv_shows(year_range, networks, ignore_ids):
         for year in year_range:
             if year not in years_already_processed and mashape_calls[date_key] < max_per_day:
                 print "processing {0}".format(year)
+                # Construct mashape query
                 search_url = construct_search_url(year)
                 mashape_query = construct_mashape_query(search_url)
                 mashape_header = {"X-Mashape-Authorization": mashape_key}
+                # Use mashape to query thetvdb
                 try:
                     need_save_mashape = True
                     mashape_calls[date_key] += 1
@@ -103,10 +130,16 @@ def get_tv_shows(year_range, networks, ignore_ids):
                         response = None
                     else:
                         raise
+                # Process response from thetvdb to get year, id, title, and network of shows in year
                 if response is not None:
                     response_items = get_info_from_response(response.body)  # = id, title, network
                     for item in response_items:
                         item_id, item_title, item_network = item[0], item[1], item[2]
+                        # If item_id meets certain criteria, add show information to list
+                        # Criteria:
+                        #       show is in network list
+                        #       show is not already in list
+                        #       show is not in ignore list (will cause errors)
                         if (item_network in networks and
                                     item_id not in [sublist[0] for sublist in tv_shows] and
                                     item_id not in ignore_ids):
@@ -129,6 +162,18 @@ def get_tv_shows(year_range, networks, ignore_ids):
 
 
 def get_overview_text(tv_shows):
+    """
+    Cycle through item_ids from list tv_shows and return overview text
+
+    item_id can be used to call api from thetvdb.com and return information in xml
+    -------
+    Input:
+        tv_shows[[year, item_id, item_title, item_network], ...]
+    Output:
+        tv_shows_overview: dictionary(show_id: overview text)
+    -------
+    Make sure to save if an exception occurs!
+    """
     try:
         tv_shows_overview = readobject("program_data_files/tv_shows_overview")
     except IOError:
@@ -137,17 +182,23 @@ def get_overview_text(tv_shows):
 
     need_save_overview = False
 
+    # For each show in tv_shows use the api from thetvdb to get an overview of the show.
+    # Includes episode information
     try:
         for show in tv_shows:
             show_id = show[1]
+            # Check to make sure I don't already have info for this show
             if show_id not in tv_shows_overview.keys():
                 print "Getting overview for  {0}".format(show_id)
+                # api key = 5CCC7BF5A4FB7B8D
+                # gives access to zip file with show information
                 address = "".join(["http://thetvdb.com/api/5CCC7BF5A4FB7B8D/series/", show_id, "/all/en.zip"])
                 # also need to close zipfile?
                 with closing(urlopen(address)) as url:
                     zipfile = ZipFile(StringIO(url.read()))
                 summary = zipfile.open("en.xml").read()
                 need_save_overview = True
+                # Merge all nodes named Overview to one text blob and save to dictionary
                 tv_shows_overview[show_id] = xml_to_text(summary, node_name='Overview')
     finally:
         if need_save_overview:
@@ -160,6 +211,16 @@ def get_overview_text(tv_shows):
 
 
 def get_keywords(overview):
+    """
+    Cycle through each show_id from overview dictionary and extract keywords with Alchemy API
+
+    Input:
+        overview: dictionary(show_id: overview text)
+    Output:
+        keywords: dictionary(show_id: keyword dictionary(word: value))
+    ------
+    Make sure to save if an exception occurs!
+    """
 
     keywords = {}
     try:
@@ -196,6 +257,12 @@ def get_keywords(overview):
 
 
 def summarize(tv_shows, keywords):
+    """
+    Summarize information in a format to be use for plotting heat map
+
+    This can be changed later to organize the information in different ways
+    for different forms of analysis
+    """
     summary = dict()
     missing_keywords_flag = False
     for show in tv_shows:
